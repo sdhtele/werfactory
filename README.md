@@ -141,7 +141,7 @@ This project is licensed under the MIT License. See the `LICENSE` file for detai
 ## Contact
 
 For questions or issues, please contact:
-- **Name**: Your Name
+- **Name**: ngnawfal
 - **Email**: dev@ngnawfal.web.id
 - **GitHub**: [sdhtele](https://github.com/sdhtele)
 
