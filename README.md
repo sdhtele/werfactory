@@ -142,6 +142,6 @@ This project is licensed under the MIT License. See the `LICENSE` file for detai
 
 For questions or issues, please contact:
 - **Name**: Your Name
-- **Email**: your.email@example.com
-- **GitHub**: [yourusername](https://github.com/yourusername)
+- **Email**: dev@ngnawfal.web.id
+- **GitHub**: [sdhtele](https://github.com/sdhtele)
 
