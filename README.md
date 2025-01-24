@@ -34,7 +34,7 @@ Werfactory is a Node.js-based WhatsApp bot designed to automate various tasks, s
 
 1. Clone the repository:
    ```bash
-   git clone https://github.com/yourusername/werfactory.git
+   git clone https://github.com/sdhtele/werfactory.git
    cd werfactory
    ```
 
