@@ -6,56 +6,69 @@ const cron = require('node-cron');
 const puppeteer = require('puppeteer');
 const fs = require('fs');
 const path = require('path');
+const qrcode = require('qrcode-terminal');
 require('dotenv').config();
 
+// Inisialisasi WhatsApp Client
 const client = new Client({
     authStrategy: new LocalAuth(),
     puppeteer: {
-        headless: false,  // Ubah ke true jika ingin berjalan di background
+        headless: true,
+        args: ['--no-sandbox', '--disable-setuid-sandbox'] // Menangani mode root
     }
 });
 
+// Event: QR Code
 client.on('qr', (qr) => {
-    console.log('Scan QR Code ini dengan WhatsApp Anda.');
+    console.log('⚠️ Silakan scan QR Code berikut dengan WhatsApp Anda:');
+    qrcode.generate(qr, { small: true }); // Menampilkan QR Code visual di terminal
 });
 
+// Event: Bot Siap
 client.on('ready', () => {
-    console.log('Bot WhatsApp siap digunakan!');
-    scheduleDailyScreenshot();
+    console.log('✅ Bot WhatsApp siap digunakan!');
+    scheduleDailyScreenshot(); // Jadwalkan pengiriman screenshot Forex Factory harian
 });
 
-// Fungsi untuk mengambil screenshot dari Forex Factory
-async function takeScreenshot() {
-    console.log('Mengambil screenshot dari Forex Factory...');
-    const browser = await puppeteer.launch({ headless: true });
-    const page = await browser.newPage();
-    await page.goto('https://www.forexfactory.com/calendar', { waitUntil: 'networkidle2' });
+// Fungsi: Ambil Screenshot dari URL yang Diminta
+async function takeCustomScreenshot(url) {
+    try {
+        console.log(`📸 Mengambil screenshot dari URL: ${url}`);
+        const browser = await puppeteer.launch({
+            headless: true,
+            args: ['--no-sandbox', '--disable-setuid-sandbox']
+        });
+        const page = await browser.newPage();
+        await page.goto(url, { waitUntil: 'networkidle2' });
 
-    await page.waitForSelector('.calendar__table');
+        const filePath = path.join(__dirname, 'custom_screenshot.png');
+        await page.screenshot({ path: filePath, fullPage: true });
+        await browser.close();
 
-    const filePath = path.join(__dirname, 'forex_calendar.png');
-    await page.screenshot({ path: filePath, fullPage: true });
-    await browser.close();
-
-    console.log('Screenshot berhasil diambil:', filePath);
-    return filePath;
+        console.log('✅ Screenshot berhasil diambil:', filePath);
+        return filePath;
+    } catch (error) {
+        console.error('❌ Gagal mengambil screenshot:', error.message);
+        throw error;
+    }
 }
 
-// Fungsi untuk mengirim screenshot ke WhatsApp
+// Fungsi: Kirim Screenshot ke WhatsApp
 async function sendScreenshot() {
-    const filePath = await takeScreenshot();
-    const chatId = process.env.RECIPIENT_NUMBER + '@c.us';
+    try {
+        const filePath = await takeScreenshot();
+        const chatId = `${process.env.RECIPIENT_NUMBER}@c.us`;
 
-    client.sendMessage(chatId, 'Berikut adalah kalender Forex hari ini:', {
-        media: fs.readFileSync(filePath),
-    }).then(() => {
-        console.log('Screenshot berhasil dikirim!');
-    }).catch((error) => {
-        console.error('Gagal mengirim pesan:', error);
-    });
+        const media = fs.readFileSync(filePath);
+        await client.sendMessage(chatId, '📈 Berikut adalah kalender Forex hari ini:', { media });
+
+        console.log('✅ Screenshot berhasil dikirim!');
+    } catch (error) {
+        console.error('❌ Gagal mengirim screenshot:', error.message);
+    }
 }
 
-// Fungsi untuk mengambil status server
+// Fungsi: Status Server
 async function getServerStatus() {
     const cpu = await osu.cpu.usage();
     const mem = await osu.mem.info();
@@ -75,55 +88,82 @@ async function getServerStatus() {
     `;
 }
 
-// Fungsi untuk melakukan speedtest
+// Fungsi: Jalankan Speedtest
 async function runSpeedTest() {
     try {
-        console.log('Menjalankan Speedtest...');
+        console.log('🚀 Menjalankan Speedtest...');
         const result = await speedTest({ acceptLicense: true });
 
         return `
 🚀 *Hasil Speedtest* 🚀
 =====================
 🏓 *Ping:* ${result.ping.latency} ms
-⬇️ *Download Speed:* ${result.download.bandwidth / 125000} Mbps
-⬆️ *Upload Speed:* ${result.upload.bandwidth / 125000} Mbps
+⬇️ *Download Speed:* ${(result.download.bandwidth / 125000).toFixed(2)} Mbps
+⬆️ *Upload Speed:* ${(result.upload.bandwidth / 125000).toFixed(2)} Mbps
 📍 *Server:* ${result.server.location} (${result.server.country})
 =====================
         `;
     } catch (error) {
-        console.error('Speedtest gagal:', error);
-        return 'Gagal melakukan speedtest. Coba lagi nanti!';
+        console.error('❌ Speedtest gagal:', error.message);
+        return '⚠️ Gagal melakukan speedtest. Coba lagi nanti!';
     }
 }
 
-// Fungsi untuk menjadwalkan pengiriman screenshot setiap hari pukul 09:00
+// Fungsi: Jadwalkan Screenshot Harian (Pukul 09:00)
 function scheduleDailyScreenshot() {
     cron.schedule('0 9 * * *', async () => {
-        console.log('Menjalankan tugas harian...');
+        console.log('⏰ Menjalankan tugas harian...');
         await sendScreenshot();
     }, {
         timezone: "Asia/Jakarta"
     });
 
-    console.log('Jadwal pengiriman screenshot Forex Factory sudah diatur.');
+    console.log('✅ Jadwal pengiriman screenshot Forex Factory sudah diatur.');
 }
 
-// Event listener untuk menerima pesan WhatsApp
+// Event: Pesan Diterima
 client.on('message', async (message) => {
-    if (message.body.toLowerCase() === '!status') {
-        console.log('Menerima perintah status server...');
+    const command = message.body.toLowerCase();
+
+    if (command.startsWith('!webss ')) {
+        const url = command.replace('!webss ', '').trim();
+
+        // Validasi URL
+        if (!url.startsWith('http://') && !url.startsWith('https://')) {
+            client.sendMessage(message.from, '⚠️ URL tidak valid! Harap masukkan URL yang dimulai dengan "http://" atau "https://".');
+            return;
+        }
+
+        console.log(`📩 Menerima perintah web screenshot untuk URL: ${url}`);
+        client.sendMessage(message.from, '📸 Sedang mengambil screenshot, harap tunggu...');
+
+        try {
+            const screenshotPath = await takeCustomScreenshot(url);
+            const media = fs.readFileSync(screenshotPath);
+
+            // Kirim hasil screenshot ke pengguna
+            await client.sendMessage(message.from, '✅ Berikut adalah screenshot dari website yang Anda minta:', { media });
+            console.log('✅ Screenshot berhasil dikirim!');
+        } catch (error) {
+            console.error('❌ Gagal mengirim screenshot:', error.message);
+            client.sendMessage(message.from, '❌ Gagal mengambil screenshot dari URL yang diminta. Coba lagi nanti!');
+        }
+    } else if (command === '!status') {
+        console.log('📩 Menerima perintah status server...');
         const statusMessage = await getServerStatus();
         client.sendMessage(message.from, statusMessage);
-    } else if (message.body.toLowerCase() === '!speedtest') {
-        console.log('Menerima perintah speedtest...');
+    } else if (command === '!speedtest') {
+        console.log('📩 Menerima perintah speedtest...');
         client.sendMessage(message.from, '🚀 Sedang menjalankan speedtest, harap tunggu sebentar...');
         const speedResult = await runSpeedTest();
         client.sendMessage(message.from, speedResult);
     }
 });
 
+// Event: Error
 client.on('error', (err) => {
-    console.error('Terjadi kesalahan:', err);
+    console.error('❌ Terjadi kesalahan:', err.message);
 });
 
+// Inisialisasi Client
 client.initialize();
