@@ -1,9 +1,12 @@
-const { Client, LocalAuth } = require('whatsapp-web.js');
+const puppeteer = require('puppeteer-extra');
+const StealthPlugin = require('puppeteer-extra-plugin-stealth');
+puppeteer.use(StealthPlugin());
+
+const { Client, LocalAuth, MessageMedia } = require('whatsapp-web.js');
 const os = require('os');
 const osu = require('node-os-utils');
 const speedTest = require('speedtest-net');
 const cron = require('node-cron');
-const puppeteer = require('puppeteer');
 const fs = require('fs');
 const path = require('path');
 const qrcode = require('qrcode-terminal');
@@ -30,18 +33,23 @@ client.on('ready', () => {
     scheduleDailyScreenshot(); // Jadwalkan pengiriman screenshot Forex Factory harian
 });
 
-// Fungsi: Ambil Screenshot dari URL yang Diminta
-async function takeCustomScreenshot(url) {
+// Fungsi: Ambil Screenshot dari URL dengan Puppeteer dan Stealth Plugin
+async function takeCustomScreenshot(url, filename) {
     try {
         console.log(`📸 Mengambil screenshot dari URL: ${url}`);
+
         const browser = await puppeteer.launch({
             headless: true,
             args: ['--no-sandbox', '--disable-setuid-sandbox']
         });
         const page = await browser.newPage();
+
+        await page.setUserAgent('Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36');
+        await page.setViewport({ width: 1920, height: 1080, deviceScaleFactor: 2 });
+
         await page.goto(url, { waitUntil: 'networkidle2' });
 
-        const filePath = path.join(__dirname, 'custom_screenshot.png');
+        const filePath = path.join(__dirname, filename);
         await page.screenshot({ path: filePath, fullPage: true });
         await browser.close();
 
@@ -53,39 +61,22 @@ async function takeCustomScreenshot(url) {
     }
 }
 
-// Fungsi: Kirim Screenshot ke WhatsApp
-async function sendScreenshot() {
+// Fungsi: Kirim Screenshot ke Grup WhatsApp
+async function sendScreenshotToGroup() {
     try {
-        const filePath = await takeScreenshot();
-        const chatId = `${process.env.RECIPIENT_NUMBER}@c.us`;
+        const filePath = await takeCustomScreenshot('https://www.forexfactory.com/calendar', 'forex_calendar.png');
+        const groupId = `${process.env.GROUP_ID}`; // ID Grup WhatsApp
 
-        const media = fs.readFileSync(filePath);
-        await client.sendMessage(chatId, '📈 Berikut adalah kalender Forex hari ini:', { media });
+        const media = MessageMedia.fromFilePath(filePath);
+        await client.sendMessage(groupId, media, {
+            caption: '📈 Berikut adalah kalender Forex hari ini:',
+            sendMediaAsDocument: true // Kirim sebagai dokumen tanpa kompresi
+        });
 
-        console.log('✅ Screenshot berhasil dikirim!');
+        console.log('✅ Screenshot berhasil dikirim ke grup!');
     } catch (error) {
-        console.error('❌ Gagal mengirim screenshot:', error.message);
+        console.error('❌ Gagal mengirim screenshot ke grup:', error.message);
     }
-}
-
-// Fungsi: Status Server
-async function getServerStatus() {
-    const cpu = await osu.cpu.usage();
-    const mem = await osu.mem.info();
-    const disk = await osu.drive.info();
-    const uptime = os.uptime();
-    const loadAverage = os.loadavg()[0];
-
-    return `
-💻 *Status Server* 💻
-=====================
-🕒 *Uptime:* ${Math.floor(uptime / 3600)} jam
-💽 *CPU Usage:* ${cpu.toFixed(2)}%
-🧠 *RAM Usage:* ${mem.usedMemMb}MB / ${mem.totalMemMb}MB
-📀 *Disk Usage:* ${disk.usedGb}GB / ${disk.totalGb}GB
-⚙️ *Load Average:* ${loadAverage.toFixed(2)}
-=====================
-    `;
 }
 
 // Fungsi: Jalankan Speedtest
@@ -113,12 +104,32 @@ async function runSpeedTest() {
 function scheduleDailyScreenshot() {
     cron.schedule('0 9 * * *', async () => {
         console.log('⏰ Menjalankan tugas harian...');
-        await sendScreenshot();
+        await sendScreenshotToGroup();
     }, {
         timezone: "Asia/Jakarta"
     });
 
     console.log('✅ Jadwal pengiriman screenshot Forex Factory sudah diatur.');
+}
+
+// Fungsi: Status Server
+async function getServerStatus() {
+    const cpu = await osu.cpu.usage();
+    const mem = await osu.mem.info();
+    const disk = await osu.drive.info();
+    const uptime = os.uptime();
+    const loadAverage = os.loadavg()[0];
+
+    return `
+💻 *Status Server* 💻
+=====================
+🕒 *Uptime:* ${Math.floor(uptime / 3600)} jam
+💽 *CPU Usage:* ${cpu.toFixed(2)}%
+🧠 *RAM Usage:* ${mem.usedMemMb}MB / ${mem.totalMemMb}MB
+📀 *Disk Usage:* ${disk.usedGb}GB / ${disk.totalGb}GB
+⚙️ *Load Average:* ${loadAverage.toFixed(2)}
+=====================
+    `;
 }
 
 // Event: Pesan Diterima
@@ -138,11 +149,14 @@ client.on('message', async (message) => {
         client.sendMessage(message.from, '📸 Sedang mengambil screenshot, harap tunggu...');
 
         try {
-            const screenshotPath = await takeCustomScreenshot(url);
-            const media = fs.readFileSync(screenshotPath);
+            const screenshotPath = await takeCustomScreenshot(url, 'custom_screenshot.png');
+            const media = MessageMedia.fromFilePath(screenshotPath);
 
             // Kirim hasil screenshot ke pengguna
-            await client.sendMessage(message.from, '✅ Berikut adalah screenshot dari website yang Anda minta:', { media });
+            await client.sendMessage(message.from, media, {
+                caption: '✅ Berikut adalah screenshot dari website yang Anda minta:',
+                sendMediaAsDocument: true // Kirim sebagai dokumen
+            });
             console.log('✅ Screenshot berhasil dikirim!');
         } catch (error) {
             console.error('❌ Gagal mengirim screenshot:', error.message);
@@ -157,6 +171,13 @@ client.on('message', async (message) => {
         client.sendMessage(message.from, '🚀 Sedang menjalankan speedtest, harap tunggu sebentar...');
         const speedResult = await runSpeedTest();
         client.sendMessage(message.from, speedResult);
+    } else if (command === '!groupid') {
+        console.log('📩 Menerima perintah untuk mendapatkan Group ID...');
+        if (message.from.endsWith('@g.us')) {
+            client.sendMessage(message.from, `🆔 *Group ID*: ${message.from}`);
+        } else {
+            client.sendMessage(message.from, '⚠️ Perintah ini hanya dapat digunakan dalam grup!');
+        }
     }
 });
 
